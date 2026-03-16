@@ -268,12 +268,12 @@
 
             // Apply difficulty modifiers
             if (difficulty >= 2) {
-                // 50% chance of negative r
-                if (Math.random() > 0.5) r = -r;
+                // Always negative r
+                r = -r;
             }
             if (difficulty === 3) {
-                // 50% chance of negative theta
-                if (Math.random() > 0.5 && thetaVal !== 0) {
+                // Always negative theta
+                if (thetaVal !== 0) {
                     thetaVal = thetaVal - 2 * Math.PI; // Mathematical value
                     // Format negative string
                     if (thetaStr.includes('/')) {
