@@ -274,7 +274,7 @@
             if (difficulty === 3) {
                 // Always negative theta
                 if (thetaVal !== 0) {
-                    thetaVal = -thetaVal; // Mathematical value
+                    thetaVal = 2 * Math.PI - thetaVal; // The mathematical positive equivalent of -theta
                     // Format negative string
                     if (thetaStr.includes('/')) {
                         thetaStr = "-" + thetaStr;
