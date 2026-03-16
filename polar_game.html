@@ -1,0 +1,440 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Polar Coordinates: Point Plotter</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
+        canvas { 
+            cursor: crosshair; 
+            touch-action: none; /* Prevent scrolling when tapping canvas on mobile */
+        }
+        .math-font { font-family: 'Cambria Math', 'Times New Roman', serif; }
+    </style>
+</head>
+<body class="bg-slate-50 text-slate-800 min-h-screen flex flex-col items-center py-8 px-4">
+
+    <div class="max-w-5xl w-full bg-white rounded-xl shadow-lg overflow-hidden border border-slate-200">
+        
+        <!-- Header -->
+        <header class="bg-indigo-700 text-white p-6">
+            <h1 class="text-3xl font-bold mb-2">Interactive Polar Plane</h1>
+            <p class="text-indigo-100">Click the exact intersection on the polar grid that matches the given coordinate <span class="math-font italic">(r, &theta;)</span>.</p>
+        </header>
+
+        <div class="flex flex-col md:flex-row">
+            
+            <!-- Sidebar Controls & Info -->
+            <div class="w-full md:w-1/3 p-6 border-b md:border-b-0 md:border-r border-slate-200 bg-slate-50 flex flex-col">
+                
+                <div class="mb-6">
+                    <h2 class="text-sm font-semibold text-slate-500 uppercase tracking-wider mb-2">Target Coordinate</h2>
+                    <div id="target-display" class="text-4xl font-bold text-indigo-700 math-font bg-indigo-50 p-4 rounded-lg border border-indigo-100 text-center shadow-inner">
+                        (r, &theta;)
+                    </div>
+                </div>
+
+                <div class="mb-6">
+                    <h2 class="text-sm font-semibold text-slate-500 uppercase tracking-wider mb-2">Difficulty Level</h2>
+                    <select id="difficulty-select" class="w-full p-2 border border-slate-300 rounded focus:ring-2 focus:ring-indigo-500 focus:outline-none">
+                        <option value="1">Level 1: Positive r, Positive &theta;</option>
+                        <option value="2">Level 2: Includes Negative r</option>
+                        <option value="3">Level 3: Includes Negative r and Negative &theta;</option>
+                    </select>
+                </div>
+
+                <div class="mb-6 grid grid-cols-2 gap-4">
+                    <div class="bg-white p-3 rounded border border-slate-200 text-center">
+                        <div class="text-xs text-slate-500 uppercase">Score</div>
+                        <div id="score-display" class="text-2xl font-bold text-slate-700">0</div>
+                    </div>
+                    <div class="bg-white p-3 rounded border border-slate-200 text-center">
+                        <div class="text-xs text-slate-500 uppercase">Streak</div>
+                        <div id="streak-display" class="text-2xl font-bold text-emerald-600">0</div>
+                    </div>
+                </div>
+
+                <div id="feedback-panel" class="mb-6 p-4 rounded-lg text-sm hidden">
+                    <!-- Feedback populated by JS -->
+                </div>
+
+                <div class="mt-auto space-y-3">
+                    <button id="btn-skip" class="w-full py-2 px-4 bg-slate-200 hover:bg-slate-300 text-slate-700 font-semibold rounded transition duration-200">
+                        Skip / Show Answer
+                    </button>
+                    <button id="btn-next" class="w-full py-2 px-4 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold rounded shadow transition duration-200 hidden">
+                        Next Coordinate &rarr;
+                    </button>
+                </div>
+
+            </div>
+
+            <!-- Canvas Area -->
+            <div class="w-full md:w-2/3 p-6 flex justify-center items-center bg-white relative">
+                <div class="relative w-full max-w-[500px] aspect-square">
+                    <canvas id="polar-canvas" class="w-full h-full rounded-full border border-slate-200 shadow-sm"></canvas>
+                </div>
+            </div>
+
+        </div>
+    </div>
+
+    <script>
+        // --- Constants & Mathematical Definitions ---
+        const canvas = document.getElementById('polar-canvas');
+        const ctx = canvas.getContext('2d');
+        
+        // Define canvas internal resolution for crisp rendering
+        const CANVAS_SIZE = 600;
+        canvas.width = CANVAS_SIZE;
+        canvas.height = CANVAS_SIZE;
+        
+        const CENTER = CANVAS_SIZE / 2;
+        const MAX_R = 5;
+        const UNIT_PIXELS = (CANVAS_SIZE / 2 - 40) / MAX_R; // Leave 40px margin for labels
+
+        // Standard angles used in Precalculus/Trig
+        const STANDARD_ANGLES = [
+            { val: 0, str: "0" },
+            { val: Math.PI/6, str: "&pi;/6" },
+            { val: Math.PI/4, str: "&pi;/4" },
+            { val: Math.PI/3, str: "&pi;/3" },
+            { val: Math.PI/2, str: "&pi;/2" },
+            { val: 2*Math.PI/3, str: "2&pi;/3" },
+            { val: 3*Math.PI/4, str: "3&pi;/4" },
+            { val: 5*Math.PI/6, str: "5&pi;/6" },
+            { val: Math.PI, str: "&pi;" },
+            { val: 7*Math.PI/6, str: "7&pi;/6" },
+            { val: 5*Math.PI/4, str: "5&pi;/4" },
+            { val: 4*Math.PI/3, str: "4&pi;/3" },
+            { val: 3*Math.PI/2, str: "3&pi;/2" },
+            { val: 5*Math.PI/3, str: "5&pi;/3" },
+            { val: 7*Math.PI/4, str: "7&pi;/4" },
+            { val: 11*Math.PI/6, str: "11&pi;/6" }
+        ];
+
+        // --- Game State ---
+        let currentTarget = null;
+        let score = 0;
+        let streak = 0;
+        let isWaitingForNext = false;
+
+        // --- DOM Elements ---
+        const targetDisplay = document.getElementById('target-display');
+        const scoreDisplay = document.getElementById('score-display');
+        const streakDisplay = document.getElementById('streak-display');
+        const difficultySelect = document.getElementById('difficulty-select');
+        const feedbackPanel = document.getElementById('feedback-panel');
+        const btnSkip = document.getElementById('btn-skip');
+        const btnNext = document.getElementById('btn-next');
+
+        // --- Initialization ---
+        function init() {
+            drawGrid();
+            generateNewTarget();
+            
+            canvas.addEventListener('mousedown', handleInteraction);
+            canvas.addEventListener('touchstart', (e) => {
+                e.preventDefault(); // Prevent scrolling
+                handleInteraction(e.touches[0]);
+            });
+
+            btnSkip.addEventListener('click', showAnswer);
+            btnNext.addEventListener('click', () => {
+                isWaitingForNext = false;
+                btnNext.classList.add('hidden');
+                btnSkip.classList.remove('hidden');
+                hideFeedback();
+                generateNewTarget();
+            });
+
+            difficultySelect.addEventListener('change', () => {
+                score = 0;
+                streak = 0;
+                updateScoreboard();
+                generateNewTarget();
+            });
+        }
+
+        // --- Core Drawing Functions ---
+        function drawGrid() {
+            ctx.clearRect(0, 0, CANVAS_SIZE, CANVAS_SIZE);
+            
+            ctx.save();
+            ctx.translate(CENTER, CENTER);
+
+            // Draw concentric circles (Radii)
+            ctx.lineWidth = 1;
+            for (let r = 1; r <= MAX_R; r++) {
+                ctx.beginPath();
+                ctx.arc(0, 0, r * UNIT_PIXELS, 0, 2 * Math.PI);
+                ctx.strokeStyle = r === MAX_R ? '#94a3b8' : '#e2e8f0'; // Darker outer ring
+                ctx.stroke();
+                
+                // Label radius on the positive x-axis
+                if(r < MAX_R) {
+                    ctx.fillStyle = '#64748b';
+                    ctx.font = '12px sans-serif';
+                    ctx.fillText(r.toString(), r * UNIT_PIXELS + 2, -5);
+                }
+            }
+
+            // Draw radial lines (Angles) and labels
+            ctx.font = '16px Cambria Math, serif';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            
+            STANDARD_ANGLES.forEach(angle => {
+                const cosA = Math.cos(angle.val);
+                const sinA = -Math.sin(angle.val); // Invert Y for standard math orientation
+
+                ctx.beginPath();
+                ctx.moveTo(0, 0);
+                ctx.lineTo(cosA * MAX_R * UNIT_PIXELS, sinA * MAX_R * UNIT_PIXELS);
+                ctx.strokeStyle = '#e2e8f0';
+                ctx.stroke();
+
+                // Draw Angle Labels
+                const labelRadius = MAX_R * UNIT_PIXELS + 25;
+                ctx.fillStyle = '#475569';
+                
+                // Convert HTML entity to unicode for canvas
+                let labelText = angle.str.replace('&pi;', 'π');
+                ctx.fillText(labelText, cosA * labelRadius, sinA * labelRadius);
+            });
+
+            // Draw Polar Axis (Thicker positive X axis)
+            ctx.beginPath();
+            ctx.moveTo(0, 0);
+            ctx.lineTo(MAX_R * UNIT_PIXELS, 0);
+            ctx.strokeStyle = '#3b82f6';
+            ctx.lineWidth = 2;
+            ctx.stroke();
+            
+            // Draw Pole
+            ctx.beginPath();
+            ctx.arc(0, 0, 4, 0, 2 * Math.PI);
+            ctx.fillStyle = '#3b82f6';
+            ctx.fill();
+
+            ctx.restore();
+        }
+
+        function drawPoint(physicalR, physicalTheta, color, label = null) {
+            ctx.save();
+            ctx.translate(CENTER, CENTER);
+            
+            const x = physicalR * UNIT_PIXELS * Math.cos(physicalTheta);
+            const y = physicalR * UNIT_PIXELS * -Math.sin(physicalTheta);
+
+            // Draw crosshair or circle
+            ctx.beginPath();
+            ctx.arc(x, y, 6, 0, 2 * Math.PI);
+            ctx.fillStyle = color;
+            ctx.fill();
+            ctx.strokeStyle = '#fff';
+            ctx.lineWidth = 2;
+            ctx.stroke();
+
+            if (label) {
+                ctx.fillStyle = color;
+                ctx.font = 'bold 16px Cambria Math, serif';
+                // Adjust text position based on quadrant
+                const textX = x + (x >= 0 ? 10 : -10);
+                const textY = y + (y >= 0 ? 15 : -15);
+                ctx.textAlign = x >= 0 ? 'left' : 'right';
+                ctx.fillText(label.replace('&pi;', 'π'), textX, textY);
+            }
+
+            ctx.restore();
+        }
+
+        // --- Game Logic ---
+        function generateNewTarget() {
+            isWaitingForNext = false;
+            drawGrid();
+            
+            const difficulty = parseInt(difficultySelect.value);
+            
+            // Radius: 1 to 5
+            let r = Math.floor(Math.random() * MAX_R) + 1;
+            
+            // Angle selection
+            let angleObj = STANDARD_ANGLES[Math.floor(Math.random() * STANDARD_ANGLES.length)];
+            let thetaVal = angleObj.val;
+            let thetaStr = angleObj.str;
+
+            // Apply difficulty modifiers
+            if (difficulty >= 2) {
+                // 50% chance of negative r
+                if (Math.random() > 0.5) r = -r;
+            }
+            if (difficulty === 3) {
+                // 50% chance of negative theta
+                if (Math.random() > 0.5 && thetaVal !== 0) {
+                    thetaVal = thetaVal - 2 * Math.PI; // Mathematical value
+                    // Format negative string
+                    if (thetaStr.includes('/')) {
+                        thetaStr = "-" + thetaStr;
+                    } else if (thetaStr === "&pi;") {
+                        thetaStr = "-&pi;";
+                    }
+                }
+            }
+
+            currentTarget = { r: r, theta: thetaVal, thetaStr: thetaStr };
+            targetDisplay.innerHTML = `(<span class="${r < 0 ? 'text-rose-600' : ''}">${r}</span>, <span class="${thetaVal < 0 ? 'text-rose-600' : ''}">${thetaStr}</span>)`;
+        }
+
+        // Normalizes any (r, theta) into a physical point where r >= 0 and 0 <= theta < 2pi
+        function normalizeToPhysical(r, theta) {
+            let t = theta % (2 * Math.PI);
+            if (t < 0) t += 2 * Math.PI; // Handle negative angles
+
+            if (r < 0) {
+                return { 
+                    r: Math.abs(r), 
+                    theta: (t + Math.PI) % (2 * Math.PI) 
+                };
+            }
+            return { r: r, theta: t };
+        }
+
+        function handleInteraction(e) {
+            if (isWaitingForNext) return;
+
+            // Get click coordinates relative to canvas center
+            const rect = canvas.getBoundingClientRect();
+            const scaleX = canvas.width / rect.width;
+            const scaleY = canvas.height / rect.height;
+            
+            const xClick = (e.clientX - rect.left) * scaleX - CENTER;
+            const yClick = (e.clientY - rect.top) * scaleY - CENTER;
+
+            // Convert to physical polar (Note: y is inverted for math plane)
+            const clickDist = Math.sqrt(xClick * xClick + yClick * yClick);
+            let clickR = Math.round(clickDist / UNIT_PIXELS);
+            
+            // Cap click to grid
+            if (clickR > MAX_R) clickR = MAX_R;
+            if (clickR === 0) clickR = 1; // Prevent clicking exactly on pole for gameplay clarity
+
+            let clickTheta = Math.atan2(-yClick, xClick);
+            if (clickTheta < 0) clickTheta += 2 * Math.PI;
+
+            // Snap theta to nearest standard angle
+            let closestAngle = STANDARD_ANGLES[0].val;
+            let minDiff = Infinity;
+            
+            STANDARD_ANGLES.forEach(a => {
+                let diff = Math.abs(clickTheta - a.val);
+                // Handle circular wrap-around difference (e.g. 359 deg is close to 0)
+                diff = Math.min(diff, 2 * Math.PI - diff);
+                if (diff < minDiff) {
+                    minDiff = diff;
+                    closestAngle = a.val;
+                }
+            });
+
+            evaluateAnswer(clickR, closestAngle);
+        }
+
+        function evaluateAnswer(clickedPhysR, clickedPhysTheta) {
+            // Get physical location of the mathematical target
+            const targetPhys = normalizeToPhysical(currentTarget.r, currentTarget.theta);
+            
+            // Check for match (using a tiny epsilon for floating point comparison of angles)
+            const rMatch = clickedPhysR === targetPhys.r;
+            const thetaMatch = Math.abs(clickedPhysTheta - targetPhys.theta) < 0.01;
+
+            drawGrid(); // Clear previous drawings
+
+            if (rMatch && thetaMatch) {
+                // Correct
+                score += 10 + (streak * 2);
+                streak += 1;
+                drawPoint(targetPhys.r, targetPhys.theta, '#10b981', 'Correct!');
+                showFeedback(`Great job! You found <b>(${currentTarget.r}, ${currentTarget.thetaStr})</b>.`, 'success');
+            } else {
+                // Incorrect
+                streak = 0;
+                
+                // Find string representation of where they clicked for educational feedback
+                let clickedAngleStr = STANDARD_ANGLES.find(a => Math.abs(a.val - clickedPhysTheta) < 0.01).str;
+                
+                // Draw user's incorrect click
+                drawPoint(clickedPhysR, clickedPhysTheta, '#ef4444', `You clicked (${clickedPhysR}, ${clickedAngleStr})`);
+                
+                // Draw correct answer
+                drawPoint(targetPhys.r, targetPhys.theta, '#10b981', 'Target Location');
+                
+                // Formulate feedback based on error type
+                let explanation = `You clicked <b>(${clickedPhysR}, ${clickedAngleStr})</b>.<br>`;
+                if (currentTarget.r < 0) {
+                    explanation += `<br><i>Remember:</i> Because <b>r is negative</b> (${currentTarget.r}), you must find the angle ${currentTarget.thetaStr}, and then move backward through the pole to the opposite quadrant!`;
+                } else if (!thetaMatch) {
+                    explanation += `<br>Check your angle! ${currentTarget.thetaStr} is located elsewhere on the unit circle.`;
+                } else if (!rMatch) {
+                    explanation += `<br>You got the angle right, but counted out the wrong distance from the pole.`;
+                }
+
+                showFeedback(explanation, 'error');
+            }
+
+            updateScoreboard();
+            isWaitingForNext = true;
+            btnSkip.classList.add('hidden');
+            btnNext.classList.remove('hidden');
+        }
+
+        function showAnswer() {
+            if (isWaitingForNext) return;
+            
+            streak = 0;
+            updateScoreboard();
+            drawGrid();
+            
+            const targetPhys = normalizeToPhysical(currentTarget.r, currentTarget.theta);
+            drawPoint(targetPhys.r, targetPhys.theta, '#f59e0b', 'Here it is');
+            
+            let explanation = `Showing the location for <b>(${currentTarget.r}, ${currentTarget.thetaStr})</b>.`;
+            if (currentTarget.r < 0) {
+                explanation += `<br>Notice how it is plotted on the ray exactly opposite the angle ${currentTarget.thetaStr}.`;
+            }
+            
+            showFeedback(explanation, 'warning');
+            
+            isWaitingForNext = true;
+            btnSkip.classList.add('hidden');
+            btnNext.classList.remove('hidden');
+        }
+
+        function showFeedback(htmlMessage, type) {
+            feedbackPanel.innerHTML = htmlMessage;
+            feedbackPanel.classList.remove('hidden', 'bg-emerald-100', 'text-emerald-800', 'bg-rose-100', 'text-rose-800', 'bg-amber-100', 'text-amber-800');
+            
+            if (type === 'success') {
+                feedbackPanel.classList.add('bg-emerald-100', 'text-emerald-800', 'border', 'border-emerald-200');
+            } else if (type === 'error') {
+                feedbackPanel.classList.add('bg-rose-100', 'text-rose-800', 'border', 'border-rose-200');
+            } else if (type === 'warning') {
+                feedbackPanel.classList.add('bg-amber-100', 'text-amber-800', 'border', 'border-amber-200');
+            }
+        }
+
+        function hideFeedback() {
+            feedbackPanel.classList.add('hidden');
+        }
+
+        function updateScoreboard() {
+            scoreDisplay.textContent = score;
+            streakDisplay.textContent = streak;
+        }
+
+        // Start app
+        window.onload = init;
+    </script>
+</body>
+</html>
